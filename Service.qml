@@ -274,6 +274,14 @@ Item {
         root.onTail(text)
       }
     }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var err = String(text || "").trim()
+        if (err)
+          console.warn("probe_numbat tail stderr: " + err.substring(0, 500))
+      }
+    }
     onExited: tailDeadline.stop()
   }
 
@@ -304,6 +312,14 @@ Item {
         root.onProbe(text)
       }
     }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var err = String(text || "").trim()
+        if (err)
+          console.warn("probe_numbat stderr: " + err.substring(0, 500))
+      }
+    }
     onExited: {
       probeDeadline.stop()
       if (root.probeQueued) {
@@ -313,9 +329,13 @@ Item {
     }
   }
 
+  // Same backstop contract as the panel's statusDeadline: just past the
+  // helper's own JOB_DEADLINE_S (30s) so a slow-but-healthy `numbat scan`
+  // (~28s worst case) still lands its packet; group-kill via setsid stays
+  // the last resort for a wedged process, not a timeout on useful work.
   Timer {
     id: probeDeadline
-    interval: 14000
+    interval: 35000
     onTriggered: {
       if (probeProc.running) {
         var pid = probeProc.pid
