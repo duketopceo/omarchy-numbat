@@ -49,6 +49,10 @@ omarchy plugin enable io.github.duketopceo.numbat
 - Live event stream: `~/.numbat/records.ndjson` (`--emit all` hooks) is tailed
   every poll and takes precedence over the scan-cached feed — the Log tab marks
   the source STREAMED or SCANNED
+- **Jev agent review**: the Jev tab (or `bin/jev_review.py`) sends recent
+  numbat events to [TypeSafe Jev](https://openrouter.ai/typesafe/jev-1.13)
+  via OpenRouter's decisions API and surfaces useless tool calls, wrong
+  thinking, and issue type — read-only, opt-in, needs `OPENROUTER_API_KEY`
 - Graceful setup pane when numbat or its hooks aren't installed yet — no dead calls
 - Reads `~/.numbat/findings.ndjson` and `~/.numbat/records.ndjson` live via
   bounded 256KiB tails, and runs `numbat scan --emit all` on a 10-min

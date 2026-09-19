@@ -24,7 +24,12 @@ Panel {
   property string probeError: ""
   property string scanError: ""
   property bool isRefreshing: false
-  property string currentTab: "activity" // "activity" | "findings" | "log"
+  property bool isReviewing: false
+  property string jevSummary: ""
+  property string jevError: ""
+  property string jevModel: ""
+  property int jevEventCount: 0
+  property string currentTab: "activity" // "activity" | "findings" | "log" | "review"
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.5)
@@ -57,6 +62,17 @@ Panel {
     isRefreshing = true
     statusProc.running = true
     statusDeadline.restart()
+  }
+
+  function runJevReview() {
+    if (jevProc.running) return
+    isReviewing = true
+    jevSummary = ""
+    jevError = ""
+    jevModel = ""
+    jevEventCount = 0
+    jevProc.running = true
+    jevDeadline.restart()
   }
 
   // _rgb / accentFill / fgFill — same helpers dayflow uses so every tint in
@@ -174,6 +190,50 @@ Panel {
           Quickshell.execDetached(["/usr/bin/kill", "-KILL", "--", "-" + pid.toString()])
         statusProc.signal(9)
         root.isRefreshing = false
+      }
+    }
+  }
+
+  Process {
+    id: jevProc
+    command: [root.py, root.pluginRoot + "/bin/jev_review.py"]
+    clearEnvironment: true
+    environment: Object.assign({}, root.procEnv, {
+      "OPENROUTER_API_KEY": null
+    })
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        jevDeadline.stop()
+        root.isReviewing = false
+        try {
+          if (!text || text.trim().length === 0) return
+          var data = JSON.parse(text)
+          if (typeof data !== "object" || data === null) return
+          root.jevSummary = typeof data.summary === "string" ? data.summary : ""
+          root.jevError = typeof data.error === "string" ? data.error : ""
+          root.jevModel = typeof data.model === "string" ? data.model : ""
+          root.jevEventCount = Math.max(0, Number(data.event_count) || 0)
+        } catch (e) {}
+      }
+    }
+    onExited: {
+      jevDeadline.stop()
+      root.isReviewing = false
+    }
+  }
+
+  Timer {
+    id: jevDeadline
+    interval: 50000
+    onTriggered: {
+      if (jevProc.running) {
+        var pid = jevProc.pid
+        if (pid > 0)
+          Quickshell.execDetached(["/usr/bin/kill", "-KILL", "--", "-" + pid.toString()])
+        jevProc.signal(9)
+        root.isReviewing = false
+        root.jevError = "Jev review timed out"
       }
     }
   }
@@ -393,7 +453,8 @@ Panel {
             model: [
               { id: "activity", label: "Activity" },
               { id: "findings", label: "Findings" },
-              { id: "log", label: "Log" }
+              { id: "log", label: "Log" },
+              { id: "review", label: "Jev" }
             ]
 
             delegate: Rectangle {
@@ -444,6 +505,7 @@ Panel {
             width: parent.width
             sourceComponent: root.currentTab === "activity" ? activityTab
               : root.currentTab === "findings" ? findingsTab
+              : root.currentTab === "review" ? reviewTab
               : logTab
           }
         }
@@ -690,6 +752,84 @@ Panel {
             }
           }
         }
+      }
+    }
+  }
+
+  Component {
+    id: reviewTab
+
+    Column {
+      width: parent ? parent.width : 0
+      spacing: Style.space(8)
+
+      PanelSectionHeader { text: "JEV AGENT REVIEW"; foreground: root.foreground; fontFamily: root.fontFamily }
+
+      Text {
+        width: parent.width
+        text: "TypeSafe Jev reads recent numbat events and flags useless tool calls, wrong thinking, and wasted time. Requires OPENROUTER_API_KEY."
+        textFormat: Text.PlainText
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+      }
+
+      Rectangle {
+        width: parent.width
+        height: Style.space(32)
+        radius: Style.cornerRadius
+        color: root.isReviewing ? root.accentFill(0.10) : root.accentFill(0.18)
+        border.color: root.accentFill(0.45)
+
+        Text {
+          anchors.centerIn: parent
+          text: root.isReviewing ? "Reviewing with Jev…" : "Run Jev review"
+          textFormat: Text.PlainText
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.bold: true
+        }
+
+        MouseArea {
+          anchors.fill: parent
+          enabled: !root.isReviewing
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.runJevReview()
+        }
+      }
+
+      Text {
+        visible: root.jevError !== ""
+        width: parent.width
+        text: root.jevError
+        textFormat: Text.PlainText
+        color: root.urgent
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+      }
+
+      Text {
+        visible: root.jevSummary !== "" && root.jevError === ""
+        width: parent.width
+        text: root.jevSummary
+        textFormat: Text.PlainText
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        wrapMode: Text.WordWrap
+      }
+
+      Text {
+        visible: root.jevModel !== "" && root.jevError === ""
+        width: parent.width
+        text: root.jevEventCount + " events · " + root.jevModel
+        textFormat: Text.PlainText
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
       }
     }
   }
